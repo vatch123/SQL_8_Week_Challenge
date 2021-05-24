@@ -64,7 +64,7 @@ CREATE TEMP TABLE runner_orders_clean AS (
     FROM runner_orders
 );
 
--- Sanity check for the cleaned customer_orders table
+-- Sanity check for the cleaned runner_orders table
 SELECT * FROM runner_orders;
 SELECT * FROM runner_orders_clean;
 
