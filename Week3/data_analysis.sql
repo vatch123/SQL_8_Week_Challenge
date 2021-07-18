@@ -59,14 +59,16 @@ ORDER BY plan_id;
 -- 4.  What is the customer count and percentage of customers who have churned rounded 
 --     to 1 decimal place?
 
+DROP TABLE IF EXISTS total_count;
+CREATE TEMP TABLE total_count AS (
+    SELECT COUNT(DISTINCT customer_id) AS num
+    FROM foodie_fi.subscriptions
+);
+
 WITH churn_count AS (
     SELECT COUNT(DISTINCT customer_id) AS num
     FROM foodie_fi.subscriptions
     WHERE plan_id = 4
-),
-total_count AS (
-    SELECT COUNT(DISTINCT customer_id) AS num
-    FROM foodie_fi.subscriptions
 )
 
 SELECT churn_count.num AS num_churned,
@@ -78,3 +80,106 @@ FROM churn_count, total_count;
 --  num_churned | percent_churned 
 -- -------------+-----------------
 --          307 |            30.7
+
+
+-- 5. How many customers have churned straight after their initial free trial
+--  - what percentage is this rounded to the nearest whole number?
+
+DROP TABLE IF EXISTS next_plan_cte;
+CREATE TEMP TABLE next_plan_cte AS(
+    SELECT *, 
+        LEAD(plan_id, 1) 
+        OVER(PARTITION BY customer_id ORDER BY start_date) as next_plan
+    FROM foodie_fi.subscriptions
+);
+
+WITH direct_churner_cte AS (
+    SELECT COUNT(DISTINCT customer_id) AS direct_churner
+    FROM next_plan_cte
+    WHERE plan_id = 0 AND next_plan = 4
+)
+
+SELECT direct_churner, direct_churner::FLOAT/num::FLOAT * 100 AS percent_churned
+FROM direct_churner_cte, total_count;
+
+-- Query Results
+
+--  direct_churner | percent_churned 
+-- ----------------+-----------------
+--              92 |             9.2
+
+
+-- 6. What is the number and percentage of customer plans after their initial free trial?
+
+DROP TABLE IF EXISTS current_plan_count;
+CREATE TEMP TABLE current_plan_count AS (
+    SELECT plan_id, COUNT(DISTINCT customer_id) AS num
+    FROM foodie_fi.subscriptions
+    GROUP BY plan_id
+);
+
+WITH conversions AS (
+    SELECT next_plan, COUNT(*) AS total_conversions
+    FROM next_plan_cte
+    WHERE next_plan IS NOT NULL AND plan_id = 0
+    GROUP BY next_plan
+    ORDER BY next_plan
+)
+
+SELECT current_plan_count.plan_id, total_conversions, num,
+        ROUND(CAST(total_conversions::FLOAT / num::FLOAT * 100 AS NUMERIC), 2) AS percent_directly_converted
+FROM current_plan_count JOIN conversions
+    ON current_plan_count.plan_id = conversions.next_plan;
+
+-- Query Results
+
+--  plan_id | total_conversions | num | percent_directly_converted 
+-- ---------+-------------------+-----+----------------------------
+--        1 |               546 | 546 |                     100.00
+--        2 |               325 | 539 |                      60.30
+--        3 |                37 | 258 |                      14.34
+--        4 |                92 | 307 |                      29.97
+
+
+-- 7. What is the customer count and percentage breakdown of all 5 plan_name values at 2020-12-31?
+
+WITH next_date_cte AS (
+    SELECT *,
+            LEAD (start_date, 1) OVER (PARTITION BY customer_id ORDER BY start_date) AS next_date
+    FROM foodie_fi.subscriptions
+),
+customers_on_date_cte AS (
+    SELECT plan_id, COUNT(DISTINCT customer_id) AS customers
+    FROM next_date_cte
+    WHERE (next_date IS NOT NULL AND ('2020-12-31'::DATE > start_date AND '2020-12-31'::DATE < next_date))
+        OR (next_date IS NULL AND '2020-12-31'::DATE > start_date)
+    GROUP BY plan_id
+)
+
+SELECT plan_id, customers, ROUND(CAST(customers::FLOAT / num::FLOAT * 100 AS NUMERIC), 2) AS percent
+FROM customers_on_date_cte, total_count;
+
+-- Query Results
+
+-- The number of customers on 2020-12-31
+
+--  plan_id | customers | percent 
+-- ---------+-----------+---------
+--        0 |        19 |    1.90
+--        1 |       224 |   22.40
+--        2 |       326 |   32.60
+--        3 |       195 |   19.50
+--        4 |       235 |   23.50
+
+
+-- 8. How many customers have upgraded to an annual plan in 2020?
+
+SELECT COUNT(DISTINCT customer_id)
+FROM next_plan_cte
+WHERE next_plan=3 AND EXTRACT(YEAR FROM start_date) = '2020';
+
+-- Query Results
+
+--  count 
+-- -------
+--    253
