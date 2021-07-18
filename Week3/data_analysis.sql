@@ -183,3 +183,83 @@ WHERE next_plan=3 AND EXTRACT(YEAR FROM start_date) = '2020';
 --  count 
 -- -------
 --    253
+
+
+-- 9. How many days on average does it take for a customer to an annual plan from the day they join Foodie-Fi?
+
+-- This will only find the average of people who have upgraded to annual plan
+WITH join_date AS (
+    SELECT customer_id, start_date 
+    FROM foodie_fi.subscriptions 
+    WHERE plan_id = 0
+),
+pro_date AS (
+    SELECT customer_id, start_date AS upgrade_date 
+    FROM foodie_fi.subscriptions 
+    WHERE plan_id = 3
+)
+
+SELECT ROUND(AVG(upgrade_date - start_date), 2) AS avg_days_to_upgrade
+FROM join_date JOIN pro_date
+    ON join_date.customer_id = pro_date.customer_id;
+
+-- Query Results
+
+--  avg_days_to_upgrade 
+-- ---------------------
+--               104.62
+
+
+-- 10. Can you further breakdown this average value into 30 day periods (i.e. 0-30 days, 31-60 days etc)
+
+WITH join_date AS (
+    SELECT customer_id, start_date 
+    FROM foodie_fi.subscriptions 
+    WHERE plan_id = 0
+),
+pro_date AS (
+    SELECT customer_id, start_date AS upgrade_date 
+    FROM foodie_fi.subscriptions 
+    WHERE plan_id = 3
+),
+bins AS (
+    SELECT WIDTH_BUCKET(upgrade_date - start_date, 0, 360, 12) AS avg_days_to_upgrade
+    FROM join_date JOIN pro_date
+        ON join_date.customer_id = pro_date.customer_id
+)
+
+
+SELECT ((avg_days_to_upgrade - 1)*30 || '-' || (avg_days_to_upgrade)*30) AS "30-day-range", COUNT(*)
+FROM bins
+GROUP BY avg_days_to_upgrade
+ORDER BY avg_days_to_upgrade;
+
+-- Query Results
+
+--  30-day-range | count 
+-- --------------+-------
+--  0-30         |    48
+--  30-60        |    25
+--  60-90        |    33
+--  90-120       |    35
+--  120-150      |    43
+--  150-180      |    35
+--  180-210      |    27
+--  210-240      |     4
+--  240-270      |     5
+--  270-300      |     1
+--  300-330      |     1
+--  330-360      |     1
+
+
+-- 11. How many customers downgraded from a pro monthly to a basic monthly plan in 2020?
+
+SELECT COUNT(*) AS customers_downgraded
+FROM next_plan_cte
+WHERE plan_id=2 AND next_plan=1;
+
+-- Query Results
+
+--  customers_downgraded 
+-- ----------------------
+--              0
